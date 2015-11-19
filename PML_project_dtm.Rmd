@@ -1,0 +1,84 @@
+---
+title: "Coursera Practical Machine Learning Project"
+author: "Dick ter Maat"
+date: "19 november 2015"
+output: html_document
+---
+
+# Introduction
+
+This is created for the project of the Coursera course "Practical Machine Learning". The data for this project is taken from  http://groupware.les.inf.puc-rio.br/har and consist of data per user when doing exercises and at the same time wearing a personal data logger.
+
+The goal of the project is to create a machine learning model which predicts the way the exercise is done (correctly / incorrectly) based on the data the person is collecting during the exercise using the data logger.
+
+Used software: RStudio 0.99.441 running on a linux - Fedora 23 machine. It is assumed the *caret* package is installed. 
+
+
+#Method
+The training data is taken from https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv and placed in the directory "/home/dick/Documenten/Coursera/05_Practical_Machine_Learning/project". The same is done with the test data https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv.
+
+Then all the variables which have a large percentage of NA is removed. Then different type of models are tried. An accuracy of at least 95% is enough. When that is achieved no more models are tried.
+
+
+```{r}
+setwd("/home/dick/Documenten/Coursera/05_Practical_Machine_Learning/project")
+library(caret)
+ptrain <- read.csv("pml-training.csv")
+
+set.seed(112233)
+inTrain <- createDataPartition(y=ptrain$classe, p=0.7, list=FALSE)
+ModelTrain <- ptrain[inTrain,]
+ModelTest <- ptrain[-inTrain,]
+```
+
+Now I am going the remove variables which have very few different values and have more than 95% NA.
+
+```{r}
+nzv <- nearZeroVar (x=ModelTrain)
+ModelTrain1 <- ModelTrain[-nzv];ModelTest1 <-ModelTest[-nzv]
+NA95 <- sapply(ModelTrain1, function(x) mean(is.na(x)) > 0.95)
+ModelTrain1 <- ModelTrain1[,NA95==FALSE];ModelTest1<-ModelTest1[,NA95==FALSE]
+# Further reduce the amount of variable by excluding the variables for user and time of conduct. These are the first five variables.
+ModelTrain1 <- ModelTrain1[,-(1:5)]; ModelTest1<- ModelTest1[, -(1:5)]
+```
+
+# First Model-type: Decision Tree
+```{r}
+modFit1 <- train(classe ~ .,data=ModelTrain1,method="rpart")
+predictionM1 <-predict(modFit1, newdata=ModelTest1)
+confM1 <- confusionMatrix(predictionM1, ModelTest1$classe)
+print(confM1$overall[1])
+```
+
+The accuracy is low: 51.8%; The out of sample error is 1 - 0.518 = 0.482.
+
+# Second Model-type: Random Forest
+
+To reduce the amount of time the model needs to calculate, I set the method to "cv" and set the cross-validation to 5. Furthermore I reduce the number of trees to 250.
+
+```{r cache=TRUE}
+control.parms <- trainControl(method="cv", 5)
+modFit2 <- train(classe~.,data=ModelTrain1, method="rf",trControl=control.parms, ntree=250)
+predictionM2 <-predict(modFit2, newdata=ModelTest1)
+confM2 <- confusionMatrix(predictionM2, ModelTest1$classe)
+print(confM2$overall[1])
+```
+
+The accurary is high: 99.796%. Therefore this is the final model attempt. The out-of-sample error is 1 - 0.99796 = 0.0024.
+
+# Load the testdata en predict the values
+```{r}
+ptest <- read.csv("pml-testing.csv")
+testResult <- predict(modFit2, newdata=ptest)
+# values: B A B A A E D B A A B C B A E E A B B B
+# as given by the project:
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(testResult)
+
+```
